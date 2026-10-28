@@ -1,0 +1,569 @@
+---
+title: "Las ASADAS de Costa Rica en el padrón de ARESEP: distribución territorial, condiciones de operación y completitud del registro"
+subtitle: "Tarea 2 · PF-0953 Programación en R · II ciclo lectivo 2026 · Programa de Posgrado en Geografía, Universidad de Costa Rica"
+author: "Estibadiz Marin Morales"
+date: 2026-10-28
+lang: es
+number-sections: true
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    embed-resources: true
+execute:
+  warning: false
+---
+
+## Introducción
+
+### El tema
+
+En Costa Rica, el servicio de agua potable no lo presta una sola entidad. Se reparte entre el Instituto Costarricense de Acueductos y Alcantarillados (AyA), la Empresa de Servicios Públicos de Heredia, varias municipalidades y un cuarto operador de naturaleza distinta: las **Asociaciones Administradoras de Sistemas de Acueductos y Alcantarillados Sanitarios Comunales (ASADAS)**. Son asociaciones de vecinos que administran, por delegación del AyA y bajo la regulación tarifaria de la Autoridad Reguladora de los Servicios Públicos (ARESEP), un sistema completo de abastecimiento: captación, conducción, almacenamiento, potabilización y red de distribución (Poder Ejecutivo de Costa Rica, 2020). Según la Dirección de Agua del Ministerio de Ambiente y Energía (s. f.), estas organizaciones «ascienden a más de 2000», lo que las convierte en el operador más numeroso del sector.
+
+Mi interés en el tema es profesional. Desde la gerencia general de RAM Ingeniería Civil acompaño a ASADAS de distintas zonas del país en estudios técnicos, planes de seguridad del agua, giras de inspección y trámites ante el AyA. Ese trabajo de campo permite conocer a fondo acueductos concretos, pero no responde una pregunta que importa para orientar el apoyo institucional: si lo que se observa en un acueducto se repite en los demás y en qué proporción. Este documento continúa la [tarea 1](https://estimarin19.github.io/tarea-01/), en la que se describieron el tema y los datos, y da el siguiente paso: procesar el padrón de ASADAS de ARESEP con los paquetes del tidyverse para pasar del caso al conjunto.
+
+### Preguntas
+
+El documento responde tres preguntas, que corresponden a las planteadas en la tarea 1 para el registro de ARESEP:
+
+1. **Distribución territorial.** ¿En qué provincias y cantones se concentran las ASADAS del padrón, y cómo se relaciona esa cantidad con la población de cada territorio?
+2. **Condiciones de operación.** ¿Qué proporción de las ASADAS opera por gravedad, por bombeo o con un sistema mixto, y difiere esa proporción entre provincias? La pregunta tiene un trasfondo económico: una asociación que bombea asume una factura eléctrica permanente que una de gravedad no tiene.
+3. **Completitud del padrón.** ¿Qué proporción de los registros carece de información sobre el tipo de sistema y los datos de contacto, en qué provincias se concentran los vacíos y qué otras inconsistencias presenta el registro?
+
+### Fuente de los datos
+
+La fuente principal es el conjunto de datos abiertos **Acueducto comunales (ASADAS)**, publicado por la Intendencia de Agua de ARESEP (2019) en <https://aresep.go.cr/datos-abiertos/acueducto-comunales-asadas/>. Reúne la ubicación de cada asociación, su información de contacto y el tipo de sistema que opera. La capa fue levantada por la Subgerencia de Sistemas Delegados del AyA; los datos de contacto y de tipo de sistema provienen del Sistema de Apoyo y Gestión de ASADAS (SAGA) con fecha del 14 de octubre de 2019, y el conjunto se distribuye bajo licencia Creative Commons BY-SA 4.0. El archivo que lee este documento es la exportación en formato CSV del portal (opción *Tabla de datos → Exportar a CSV*), descargada el 3 de setiembre de 2026 y depositada sin modificaciones en el repositorio de la tarea.
+
+Una precisión respecto de la tarea 1: allí se estimó, a partir de la paginación del visor del portal, que el conjunto comprendía «cerca de 980» acueductos. La lectura completa del archivo muestra que contiene **1 305 registros**. La cifra se corrige en este documento y se mantiene la advertencia de fondo: los datos deben leerse como una fotografía de 2019, no como un registro al día.
+
+Para relacionar la cantidad de ASADAS con la población se usa, como fuente complementaria, la estimación de población de 2022 por cantón del Instituto Nacional de Estadística y Censos (INEC, 2023), en la versión en CSV (`cantones.csv`) publicada en el sitio del curso (Vargas Del Valle, 2026).
+
+### Variables principales
+
+| Variable (nombre en el archivo) | Contenido |
+|---|---|
+| `Id Asada` | Código único del operador en el registro |
+| `Operador` | Nombre de la asociación, precedido por un código administrativo (p. ej. `00015-2014_`) |
+| `Tipo de Sistema` | Forma en que el sistema lleva el agua a la red: `GRAVEDAD`, `BOMBEO`, `MIXTO` o `SIN INFORMACIÓN` |
+| `Provincia`, `Cantón`, `Distrito` | Ubicación administrativa de la asociación |
+| `Código DTA` | Código del distrito en la División Territorial Administrativa |
+| `X`, `Y` | Coordenadas planas en la proyección CRTM05 (EPSG:5367), en metros |
+| `Teléfono`, `Fax`, `Correo` | Datos de contacto del operador; `SIN INFORMACIÓN` cuando no se registraron |
+
+: Variables del conjunto de datos de ASADAS. Fuente: ARESEP (2019). {#tbl-variables}
+
+## Importación y preparación de los datos
+
+### Paquetes
+
+Se cargan el tidyverse (Wickham et al., 2019), que incluye readr, dplyr, ggplot2, stringr, forcats y tidyr; plotly (Sievert, 2020) para los gráficos interactivos, y DT (Xie et al., s. f.) para las tablas interactivas. El uso de los paquetes sigue la documentación de ggplot2 (Wickham, 2016) y el libro de referencia del tidyverse (Wickham et al., 2023); el documento se procesó con Quarto (Allaire et al., 2024) sobre R (R Core Team, 2026). La opción `message: false` evita que los mensajes de carga aparezcan en el documento.
+
+```{r}
+#| label: paquetes
+#| message: false
+library(tidyverse)
+library(plotly)
+library(DT)
+```
+
+### Lectura desde una URL
+
+Los datos se leen con `read_csv()` directamente desde la dirección *Raw* del archivo en el repositorio de GitHub, de modo que el documento puede reproducirse en cualquier computadora sin depender de una ruta local. `show_col_types = FALSE` evita que se imprima la especificación de columnas.
+
+```{r}
+#| label: lectura
+url_datos <- "https://raw.githubusercontent.com/estimarin19/tarea-02/main/asadas_aresep.csv"
+
+asadas_crudo <- read_csv(url_datos, show_col_types = FALSE)
+```
+
+### Exploración inicial
+
+`dim()` devuelve la cantidad de filas y columnas; `glimpse()` muestra cada columna con su tipo y sus primeros valores, y `head()` presenta las primeras filas.
+
+```{r}
+#| label: exploracion
+dim(asadas_crudo)
+
+glimpse(asadas_crudo)
+
+head(asadas_crudo, 5)
+```
+
+La exploración muestra tres aspectos que determinan la preparación de los datos: los nombres de las columnas tienen espacios y tildes, lo que obliga a escribirlos entre acentos graves en el código; los valores de texto están en mayúsculas y los campos vacíos se codificaron con el texto `SIN INFORMACIÓN`; y el nombre del operador antepone un código administrativo de cinco dígitos seguido del año 2014.
+
+### Transformaciones
+
+La preparación se hace en un solo *pipeline* de dplyr, encadenado con el *pipe* (`|>`), y el resultado se guarda en el objeto `asadas`, que es el que se usa en todo el análisis.
+
+- `select()` escoge las columnas que el análisis necesita y, de paso, las renombra con nombres cortos, en minúsculas y sin espacios ni tildes (`nombre_nuevo = nombre_original`). Se descarta `Fax`, que ya no es un medio de contacto relevante.
+- `mutate()` crea o modifica columnas:
+  - `codigo` extrae con `str_extract()` el código administrativo que antecede al nombre (cinco dígitos, guion y año) y `nombre` lo elimina con `str_remove()`, para que el nombre de la asociación sea legible; `str_squish()` quita los espacios dobles que trae el archivo.
+  - `tipo_sistema` se convierte en un **factor** con las cuatro categorías en un orden fijo, para que las leyendas y las tablas lo respeten; `str_to_sentence()` pasa `GRAVEDAD` a `Gravedad`.
+  - `provincia` y `canton` se pasan a mayúscula inicial con `str_to_title()`, lo que hace legibles los textos y, sobre todo, permite unirlos después con el archivo del INEC, que usa esa misma grafía. Dos cantones aparecen en el padrón con un nombre distinto al del INEC y se corrigen con `case_when()`: `LEÓN CORTÉS CASTRO` (nombre oficial completo del cantón que el INEC abrevia como León Cortés) y `VÁZQUEZ DE CORONADO` (grafía con *z* que el INEC escribe con *s*); `str_replace_all()` deja en minúscula la preposición *de* (Montes de Oro, Vásquez de Coronado).
+  - Tres columnas lógicas (`TRUE`/`FALSE`) registran si cada ASADA tiene teléfono, correo electrónico y tipo de sistema conocidos. Un correo se considera válido solo si contiene el carácter `@`, porque el campo también trae textos como `ND` o `NO HAY`.
+
+```{r}
+#| label: transformaciones
+asadas <- asadas_crudo |>
+  select(
+    id = `Id Asada`,
+    operador = Operador,
+    telefono = Teléfono,
+    correo = Correo,
+    tipo_sistema = `Tipo de Sistema`,
+    provincia = Provincia,
+    canton = Cantón,
+    distrito = Distrito,
+    codigo_dta = `Código DTA`,
+    x = X,
+    y = Y
+  ) |>
+  mutate(
+    codigo = str_extract(operador, "^\\d{5}-\\d{4}"),
+    nombre = str_squish(str_remove(operador, "^\\d{5}-\\d{4}_")),
+    tipo_sistema = factor(
+      str_to_sentence(tipo_sistema),
+      levels = c("Gravedad", "Bombeo", "Mixto", "Sin información")
+    ),
+    provincia = str_to_title(provincia),
+    canton = case_when(
+      canton == "LEÓN CORTÉS CASTRO" ~ "LEÓN CORTÉS",
+      canton == "VÁZQUEZ DE CORONADO" ~ "VÁSQUEZ DE CORONADO",
+      .default = canton
+    ),
+    canton = str_replace_all(str_to_title(canton), " De ", " de "),
+    distrito = str_replace_all(str_to_title(distrito), " De ", " de "),
+    tiene_telefono = telefono != "SIN INFORMACIÓN",
+    tiene_correo = str_detect(correo, "@"),
+    tiene_tipo = tipo_sistema != "Sin información"
+  )
+
+glimpse(asadas)
+```
+
+### Datos complementarios: población por cantón
+
+El archivo `cantones.csv` del sitio del curso contiene, para los 84 cantones, la provincia, el nombre del cantón, la población estimada de 2022 y el área en kilómetros cuadrados (INEC, 2023). Se lee también desde una URL.
+
+```{r}
+#| label: lectura-cantones
+cantones_inec <- read_csv(
+  "https://raw.githubusercontent.com/pf0953-programacionr/2026-ii/main/datos/cantones.csv",
+  show_col_types = FALSE
+)
+
+head(cantones_inec, 5)
+```
+
+Con esos datos se construye el resumen por cantón que sirve de base a la primera pregunta. `group_by()` agrupa las ASADAS por provincia y cantón; `summarize()` calcula, para cada grupo, la cantidad de ASADAS (`n()`) y cuántas de ellas operan por bombeo o carecen de tipo de sistema (`sum()` de una condición lógica cuenta los casos `TRUE`). `left_join()` une ese resumen con el archivo del INEC usando como llave la provincia y el cantón, y conserva todos los cantones con ASADAS aunque no tuvieran correspondencia; `mutate()` calcula la tasa de ASADAS por cada 10 000 habitantes y los porcentajes, y `arrange()` ordena de mayor a menor cantidad.
+
+```{r}
+#| label: por-canton
+por_canton <- asadas |>
+  group_by(provincia, canton) |>
+  summarize(
+    asadas = n(),
+    bombeo = sum(tipo_sistema == "Bombeo"),
+    sin_tipo = sum(tipo_sistema == "Sin información"),
+    .groups = "drop"
+  ) |>
+  left_join(cantones_inec, by = c("provincia", "canton")) |>
+  mutate(
+    asadas_10k = asadas / poblacion * 10000,
+    pct_bombeo = 100 * bombeo / asadas,
+    pct_sin_tipo = 100 * sin_tipo / asadas
+  ) |>
+  arrange(desc(asadas))
+
+dim(por_canton)
+sum(is.na(por_canton$poblacion))
+```
+
+El resultado tiene `r nrow(por_canton)` filas, una por cada cantón con al menos una ASADA en el padrón, y ninguna quedó sin población, lo que confirma que los nombres se unieron correctamente. Los `r nrow(cantones_inec) - nrow(por_canton)` cantones restantes del país no aparecen en el registro; se retoman en la tercera pregunta.
+
+## Resultados
+
+### Distribución territorial: ¿dónde están las ASADAS?
+
+Para responder la primera pregunta se construye primero el resumen por provincia: `group_by()` y `summarize()` cuentan las ASADAS y los cantones distintos (`n_distinct()`) de cada provincia; `left_join()` agrega la población provincial, obtenida al sumar la de sus cantones en el archivo del INEC; `mutate()` calcula el porcentaje del total nacional y la tasa por 100 000 habitantes, y `arrange()` ordena de mayor a menor.
+
+```{r}
+#| label: resumen-provincias
+n_asadas <- nrow(asadas)
+
+poblacion_provincias <- cantones_inec |>
+  group_by(provincia) |>
+  summarize(poblacion = sum(poblacion), .groups = "drop")
+
+resumen_provincias <- asadas |>
+  group_by(provincia) |>
+  summarize(
+    cantones = n_distinct(canton),
+    asadas = n(),
+    .groups = "drop"
+  ) |>
+  left_join(poblacion_provincias, by = "provincia") |>
+  mutate(
+    pct_total = 100 * asadas / sum(asadas),
+    asadas_100k = asadas / poblacion * 100000
+  ) |>
+  arrange(desc(asadas))
+```
+
+El padrón contiene `r scales::number(n_asadas, big.mark = " ")` ASADAS distribuidas en las siete provincias y en `r nrow(por_canton)` de los 84 cantones del país. La @fig-provincias muestra cuántas hay en cada provincia y la @tbl-provincias relaciona esa cantidad con la población.
+
+```{r}
+#| label: fig-provincias
+#| fig-cap: "Cantidad de ASADAS registradas por provincia. Fuente: elaboración propia con datos de ARESEP (2019)."
+#| fig-alt: "Gráfico de barras horizontales con la cantidad de ASADAS por provincia, de mayor a menor: Guanacaste, Alajuela, San José, Puntarenas, Limón, Cartago y Heredia."
+#| fig-width: 8
+#| fig-height: 4.5
+resumen_provincias |>
+  ggplot(aes(x = asadas, y = fct_reorder(provincia, asadas))) +
+  geom_col(fill = "#2a78d6", width = 0.7) +
+  geom_text(aes(label = asadas), hjust = -0.25, size = 3.5) +
+  scale_x_continuous(
+    labels = scales::label_number(big.mark = " "),
+    expand = expansion(mult = c(0, 0.12))
+  ) +
+  labs(
+    title = "ASADAS registradas por provincia",
+    x = "Cantidad de ASADAS (número de asociaciones)",
+    y = NULL,
+    caption = "Fuente: ARESEP (2019)"
+  ) +
+  theme_minimal()
+```
+
+Guanacaste encabeza el padrón con `r resumen_provincias$asadas[resumen_provincias$provincia == "Guanacaste"]` ASADAS (`r scales::number(resumen_provincias$pct_total[resumen_provincias$provincia == "Guanacaste"], accuracy = 0.1)` % del total), seguida de cerca por Alajuela y San José; entre las tres reúnen casi dos de cada tres registros. En el otro extremo, Heredia aparece con apenas `r resumen_provincias$asadas[resumen_provincias$provincia == "Heredia"]` asociaciones, una cifra que no se explica solo por la cobertura de la Empresa de Servicios Públicos de Heredia en el Valle Central: el cantón de Sarapiquí, extenso y rural, no tiene ni una sola ASADA en el padrón. Ese vacío se analiza en la tercera pregunta.
+
+La cantidad absoluta, sin embargo, dice poco sobre el peso de la gestión comunitaria en cada territorio. La @tbl-provincias agrega la población estimada de 2022 y calcula las ASADAS por cada 100 000 habitantes.
+
+```{r}
+#| label: tbl-provincias
+#| tbl-cap: "Resumen de las ASADAS por provincia y su relación con la población. Fuente: elaboración propia con datos de ARESEP (2019) e INEC (2023)."
+resumen_provincias |>
+  knitr::kable(
+    digits = 1,
+    format.args = list(big.mark = " "),
+    col.names = c(
+      "Provincia", "Cantones con ASADAS", "ASADAS", "Población 2022 (hab.)",
+      "Porcentaje del total (%)", "ASADAS por 100 000 hab."
+    )
+  )
+```
+
+Vista así, la distribución cambia de forma. Guanacaste tiene `r scales::number(resumen_provincias$asadas_100k[resumen_provincias$provincia == "Guanacaste"], accuracy = 1)` ASADAS por cada 100 000 habitantes, más de cuatro veces la tasa de San José (`r scales::number(resumen_provincias$asadas_100k[resumen_provincias$provincia == "San José"], accuracy = 1)`), pese a que ambas provincias tienen una cantidad similar de asociaciones: en San José las ASADAS atienden a una población mucho mayor que, además, se concentra en cantones periféricos como Pérez Zeledón, Puriscal y Acosta. Puntarenas ocupa el segundo lugar en términos relativos. El promedio nacional es de `r scales::number(n_asadas / sum(cantones_inec$poblacion) * 100000, accuracy = 1)` ASADAS por cada 100 000 habitantes.
+
+La @tbl-cantones permite explorar la misma información cantón por cantón: se puede ordenar por cualquier columna haciendo clic en su encabezado y buscar una provincia o un cantón en el cuadro de búsqueda. La tabla se construye con `datatable()`: `rownames = FALSE` quita los números de fila, `colnames` asigna los nombres en español, la opción `language` traduce los controles y `formatRound()` da formato a los números (separador de miles y un decimal donde corresponde). Muestra, para cada uno de los `r nrow(por_canton)` cantones con ASADAS, la cantidad de asociaciones, la población de 2022, la tasa por 10 000 habitantes, el porcentaje de sistemas de bombeo y el porcentaje de registros sin tipo de sistema.
+
+```{r}
+#| label: tbl-cantones
+#| tbl-cap: "ASADAS por cantón: cantidad, relación con la población y condiciones de operación. Fuente: elaboración propia con datos de ARESEP (2019) e INEC (2023)."
+por_canton |>
+  select(
+    provincia, canton, asadas, poblacion, asadas_10k, pct_bombeo, pct_sin_tipo
+  ) |>
+  datatable(
+    rownames = FALSE,
+    colnames = c(
+      "Provincia", "Cantón", "ASADAS", "Población 2022 (hab.)",
+      "ASADAS por 10 000 hab.", "Bombeo (%)", "Sin tipo de sistema (%)"
+    ),
+    options = list(
+      pageLength = 10,
+      language = list(
+        search = "Buscar:",
+        lengthMenu = "Mostrar _MENU_ registros",
+        info = "Mostrando _START_ a _END_ de _TOTAL_ registros",
+        infoEmpty = "No hay registros",
+        infoFiltered = "(filtrados de _MAX_ registros)",
+        zeroRecords = "No se encontraron coincidencias",
+        paginate = list(first = "Primero", previous = "Anterior", `next` = "Siguiente", last = "Último")
+      )
+    )
+  ) |>
+  formatRound(columns = c("asadas", "poblacion"), digits = 0, mark = " ") |>
+  formatRound(
+    columns = c("asadas_10k", "pct_bombeo", "pct_sin_tipo"),
+    digits = 1, mark = " "
+  )
+```
+
+Los cantones con más asociaciones son Nicoya (`r por_canton$asadas[por_canton$canton == "Nicoya"]`), Pérez Zeledón (`r por_canton$asadas[por_canton$canton == "Pérez Zeledón"]`), Turrialba (`r por_canton$asadas[por_canton$canton == "Turrialba"]`), Santa Cruz (`r por_canton$asadas[por_canton$canton == "Santa Cruz"]`) y Puntarenas (`r por_canton$asadas[por_canton$canton == "Puntarenas"]`): cantones extensos, con población dispersa en muchos poblados que el operador estatal no abastece. En términos relativos destacan cantones pequeños de Guanacaste y de la zona de Los Santos y Puriscal: Nandayure tiene `r scales::number(por_canton$asadas_10k[por_canton$canton == "Nandayure"], accuracy = 0.1)` ASADAS por cada 10 000 habitantes y Turrubares y Hojancha superan las 20. La @fig-cajas resume cómo se distribuye esa tasa entre los cantones de cada provincia.
+
+```{r}
+#| label: fig-cajas
+#| fig-cap: "Distribución de la tasa de ASADAS por 10 000 habitantes entre los cantones de cada provincia. Cada punto es un cantón; la caja abarca la mitad central de los valores y la línea interior es la mediana. Fuente: elaboración propia con datos de ARESEP (2019) e INEC (2023)."
+#| fig-alt: "Diagrama de caja de la tasa de ASADAS por 10 000 habitantes por provincia, con los cantones superpuestos como puntos. Guanacaste tiene la mediana más alta y Heredia la más baja."
+#| fig-width: 8
+#| fig-height: 5
+por_canton |>
+  ggplot(aes(x = fct_reorder(provincia, asadas_10k, .fun = median), y = asadas_10k)) +
+  geom_boxplot(fill = "#dbe8f8", color = "#2a78d6", outlier.shape = NA) +
+  geom_jitter(width = 0.15, height = 0, alpha = 0.6, color = "#1c4f8f", size = 2) +
+  labs(
+    title = "ASADAS por 10 000 habitantes en los cantones, según provincia",
+    x = "Provincia (ordenada por la mediana)",
+    y = "ASADAS por 10 000 habitantes",
+    caption = "Fuente: ARESEP (2019) e INEC (2023)"
+  ) +
+  theme_minimal()
+```
+
+El diagrama de caja confirma que la diferencia entre provincias no se debe a uno o dos cantones excepcionales. La mediana de los cantones de Guanacaste (`r scales::number(median(por_canton$asadas_10k[por_canton$provincia == "Guanacaste"]), accuracy = 0.1)` ASADAS por cada 10 000 habitantes) prácticamente duplica las de Alajuela y Puntarenas y cuadruplica la de Cartago; en Heredia los cuatro cantones con ASADAS no llegan a 2. San José es la provincia más heterogénea: el cantón central tiene una sola ASADA para más de 350 000 habitantes, mientras que Turrubares, León Cortés y Acosta están entre los cantones con mayor tasa del país. La gestión comunitaria del agua es, en suma, un fenómeno del territorio rural y de la vertiente del Pacífico norte, y no un remanente marginal: en la mitad de los cantones de Guanacaste hay al menos una ASADA por cada 1 250 habitantes.
+
+Las coordenadas del padrón permiten ver esa distribución sobre el territorio sin necesidad todavía de un mapa de fondo. En la @fig-mapa cada punto es una ASADA ubicada por sus coordenadas CRTM05, con el color y la forma según el tipo de sistema; al pasar el cursor sobre un punto se muestra el nombre de la asociación, su cantón y su tipo de sistema, y la leyenda permite ocultar o mostrar cada categoría. La estética `text`, que ggplot2 ignora, construye la etiqueta emergente que plotly muestra con `tooltip = "text"`; `layout()` fija la misma escala en ambos ejes, para que un metro mida lo mismo en horizontal y en vertical, y `config()` traduce la barra de herramientas al español y quita el logotipo de plotly.
+
+```{r}
+#| label: mapa-puntos
+colores_tipo <- c(
+  "Gravedad" = "#2a78d6",
+  "Bombeo" = "#eb6834",
+  "Mixto" = "#1baf7a",
+  "Sin información" = "#5a5955"
+)
+
+mapa_puntos <- asadas |>
+  ggplot(aes(
+    x = x,
+    y = y,
+    color = tipo_sistema,
+    shape = tipo_sistema,
+    text = paste0(
+      nombre,
+      "\n", canton, ", ", provincia,
+      "\nSistema: ", tipo_sistema
+    )
+  )) +
+  geom_point(size = 1.5, alpha = 0.8) +
+  scale_color_manual(values = colores_tipo) +
+  scale_shape_manual(values = c(16, 17, 15, 4)) +
+  scale_x_continuous(labels = scales::label_number(big.mark = " ")) +
+  scale_y_continuous(labels = scales::label_number(big.mark = " ")) +
+  labs(
+    title = "Ubicación de las ASADAS por tipo de sistema",
+    x = "Coordenada este, CRTM05 (m)",
+    y = "Coordenada norte, CRTM05 (m)",
+    color = "Tipo de sistema",
+    shape = "Tipo de sistema",
+    caption = "Fuente: ARESEP (2019)"
+  ) +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 13))
+```
+
+```{r}
+#| label: fig-mapa
+#| fig-cap: "Ubicación de las ASADAS del padrón según sus coordenadas CRTM05 y el tipo de sistema. Gráfico interactivo: la etiqueta emergente identifica cada asociación. Fuente: elaboración propia con datos de ARESEP (2019)."
+#| fig-height: 6.5
+ggplotly(mapa_puntos, tooltip = "text") |>
+  layout(yaxis = list(scaleanchor = "x", scaleratio = 1)) |>
+  config(locale = "es", displaylogo = FALSE)
+```
+
+La nube de puntos dibuja la silueta del país y deja ver dónde se concentra la prestación comunal: la península de Nicoya y el resto de Guanacaste, la zona norte de Alajuela, la cuenca del Reventazón y Turrialba, la zona de Los Santos y el valle de El General en el Pacífico sur. El Valle Central aparece casi vacío, porque allí el servicio lo prestan el AyA, la ESPH y las municipalidades. También se aprecian los puntos naranja (bombeo) agrupados en el Caribe y en la costa guanacasteca, y las cruces grises (sin información) concentradas en Guanacaste, dos patrones que desarrollan las preguntas siguientes. Al acercar la vista se notan, además, varios puntos superpuestos en una misma coordenada, un problema del registro que se cuantifica en la tercera pregunta.
+
+### Condiciones de operación: gravedad, bombeo y sistemas mixtos
+
+El tipo de sistema indica si el agua llega a la red por gravedad —desde una fuente más alta que la comunidad—, mediante bombeo o con una combinación de ambos. Para una asociación de vecinos la diferencia es económica: el bombeo implica una factura eléctrica permanente y equipos que mantener, de modo que la proporción de sistemas de bombeo es un indicador indirecto de la fragilidad financiera de la prestación comunal. La @fig-tipo muestra la composición en cada provincia.
+
+Para construirla, `group_by()` y `summarize()` cuentan las ASADAS por provincia y tipo de sistema; luego, agrupando solo por provincia, `mutate()` calcula el porcentaje que cada tipo representa dentro de su provincia. Para que la figura se lea de arriba hacia abajo, `filter()`, `arrange()` y `pull()` extraen el orden de las provincias según su porcentaje de bombeo, y `factor()` lo fija como orden de los niveles.
+
+```{r}
+#| label: composicion
+composicion <- asadas |>
+  group_by(provincia, tipo_sistema) |>
+  summarize(asadas = n(), .groups = "drop") |>
+  group_by(provincia) |>
+  mutate(porcentaje = 100 * asadas / sum(asadas)) |>
+  ungroup()
+
+orden_bombeo <- composicion |>
+  filter(tipo_sistema == "Bombeo") |>
+  arrange(porcentaje) |>
+  pull(provincia)
+
+composicion <- composicion |>
+  mutate(provincia = factor(provincia, levels = orden_bombeo))
+```
+
+```{r}
+#| label: fig-tipo
+#| fig-cap: "Composición de las ASADAS de cada provincia según el tipo de sistema, en porcentaje del total provincial; las provincias se ordenan por su porcentaje de bombeo. Fuente: elaboración propia con datos de ARESEP (2019)."
+#| fig-alt: "Gráfico de barras apiladas al 100 % por provincia, con los porcentajes de gravedad, bombeo, mixto y sin información. Limón tiene el mayor porcentaje de bombeo y Guanacaste el mayor porcentaje sin información."
+#| fig-width: 8
+#| fig-height: 4.8
+composicion |>
+  ggplot(aes(x = porcentaje, y = provincia, fill = tipo_sistema)) +
+  geom_col(position = position_stack(reverse = TRUE), width = 0.75) +
+  geom_text(
+    aes(label = if_else(porcentaje >= 6, scales::number(porcentaje, accuracy = 1), "")),
+    position = position_stack(vjust = 0.5, reverse = TRUE),
+    color = "white", size = 3.3
+  ) +
+  scale_fill_manual(values = colores_tipo) +
+  scale_x_continuous(labels = scales::label_number(suffix = " %")) +
+  labs(
+    title = "Tipo de sistema de las ASADAS por provincia",
+    x = "Porcentaje de las ASADAS de la provincia (%)",
+    y = NULL,
+    fill = "Tipo de sistema",
+    caption = "Fuente: ARESEP (2019)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
+
+```{r}
+#| label: tipo-nacional
+#| include: false
+tipo_nacional <- asadas |>
+  count(tipo_sistema) |>
+  mutate(porcentaje = 100 * n / sum(n))
+pct <- function(tipo) scales::number(tipo_nacional$porcentaje[tipo_nacional$tipo_sistema == tipo], accuracy = 0.1)
+pct_prov <- function(prov, tipo) scales::number(composicion$porcentaje[composicion$provincia == prov & composicion$tipo_sistema == tipo], accuracy = 1)
+pct_energia <- function(prov) {
+  con_tipo <- asadas |> filter(provincia == prov, tiene_tipo)
+  scales::number(100 * mean(con_tipo$tipo_sistema %in% c("Bombeo", "Mixto")), accuracy = 1)
+}
+```
+
+En el conjunto del país, `r pct("Gravedad")` % de las ASADAS opera por gravedad, `r pct("Bombeo")` % por bombeo y `r pct("Mixto")` % con un sistema mixto; el `r pct("Sin información")` % restante no tiene el dato. Pero el promedio nacional esconde diferencias grandes. En Limón, `r pct_prov("Limón", "Bombeo")` % de las asociaciones bombea; la explicación más plausible es la topografía: el Caribe es una llanura baja, con pocos desniveles que permitan conducir el agua por gravedad, lo que obliga a captar de pozos y a bombear. Guanacaste (`r pct_prov("Guanacaste", "Bombeo")` %) y Puntarenas (`r pct_prov("Puntarenas", "Bombeo")` %) le siguen, probablemente por la misma razón en sus zonas costeras. En el extremo opuesto, San José (`r pct_prov("San José", "Bombeo")` %) y Cartago (`r pct_prov("Cartago", "Bombeo")` %) tienen casi exclusivamente sistemas de gravedad, favorecidos por la topografía montañosa y la abundancia de nacientes. Si se considera que los sistemas mixtos también incurren en costos de bombeo, en Puntarenas y Guanacaste más de un tercio de las asociaciones con tipo conocido (`r pct_energia("Puntarenas")` % y `r pct_energia("Guanacaste")` %, respectivamente) depende, al menos en parte, de energía eléctrica para abastecer a su comunidad, y en Limón la proporción llega a `r pct_energia("Limón")` %.
+
+### Completitud del padrón: ¿qué no sabe el registro?
+
+Un padrón incompleto no es solo un defecto del archivo: es una medida de cuánto conoce el Estado aquello que regula. Tres campos permiten evaluarlo. Para cada provincia se calcula, con `group_by()` y `summarize()`, el porcentaje de registros sin tipo de sistema, sin teléfono y sin correo electrónico (el promedio de una columna lógica negada, `mean(!tiene_tipo)`, es la proporción de casos `FALSE`). `pivot_longer()`, de tidyr, reorganiza los tres porcentajes en una sola columna, el formato «largo» que ggplot2 necesita para asignar el campo a un eje.
+
+```{r}
+#| label: completitud
+completitud <- asadas |>
+  group_by(provincia) |>
+  summarize(
+    registros = n(),
+    `Tipo de sistema` = 100 * mean(!tiene_tipo),
+    `Teléfono` = 100 * mean(!tiene_telefono),
+    `Correo electrónico` = 100 * mean(!tiene_correo),
+    .groups = "drop"
+  ) |>
+  pivot_longer(
+    cols = c(`Tipo de sistema`, `Teléfono`, `Correo electrónico`),
+    names_to = "campo",
+    values_to = "porcentaje"
+  ) |>
+  mutate(
+    campo = factor(campo, levels = c("Tipo de sistema", "Teléfono", "Correo electrónico"))
+  )
+```
+
+```{r}
+#| label: fig-completitud
+#| fig-cap: "Porcentaje de registros sin información en tres campos del padrón, por provincia. El color más oscuro indica mayor porcentaje de vacíos. Fuente: elaboración propia con datos de ARESEP (2019)."
+#| fig-alt: "Mapa de calor con las provincias en las filas y tres campos en las columnas; cada celda muestra el porcentaje de registros sin información. Guanacaste tiene los porcentajes más altos en los tres campos."
+#| fig-width: 7.5
+#| fig-height: 4.5
+completitud |>
+  ggplot(aes(
+    x = campo,
+    y = fct_reorder(provincia, porcentaje, .fun = mean),
+    fill = porcentaje
+  )) +
+  geom_tile(color = "white", linewidth = 1) +
+  geom_text(
+    aes(
+      label = scales::number(porcentaje, accuracy = 1, suffix = " %"),
+      color = if_else(porcentaje > 60, "white", "black")
+    ),
+    size = 3.6
+  ) +
+  scale_color_identity() +
+  scale_fill_gradient(
+    low = "#fff3ea", high = "#b4421a",
+    labels = scales::label_number(suffix = " %")
+  ) +
+  labs(
+    title = "Registros sin información en el padrón de ASADAS",
+    x = "Campo del registro",
+    y = "Provincia (ordenada por el promedio de vacíos)",
+    fill = "Registros sin\ninformación (%)",
+    caption = "Fuente: ARESEP (2019)"
+  ) +
+  theme_minimal() +
+  theme(panel.grid = element_blank())
+```
+
+```{r}
+#| label: cifras-completitud
+#| include: false
+sin_tel <- 100 * mean(!asadas$tiene_telefono)
+sin_correo <- 100 * mean(!asadas$tiene_correo)
+sin_tipo <- 100 * mean(!asadas$tiene_tipo)
+sin_nada <- sum(!asadas$tiene_telefono & !asadas$tiene_correo & !asadas$tiene_tipo)
+con_todo <- sum(asadas$tiene_telefono & asadas$tiene_correo & asadas$tiene_tipo)
+guan_sin_tipo <- completitud$porcentaje[completitud$provincia == "Guanacaste" & completitud$campo == "Tipo de sistema"]
+guan_sin_tel <- completitud$porcentaje[completitud$provincia == "Guanacaste" & completitud$campo == "Teléfono"]
+```
+
+Los vacíos son grandes y no están repartidos al azar. En el país, `r scales::number(sin_tel, accuracy = 1)` % de las asociaciones no tiene teléfono registrado y `r scales::number(sin_correo, accuracy = 1)` % no tiene correo electrónico; solo `r con_todo` registros (`r scales::number(100 * con_todo / n_asadas, accuracy = 1)` %) tienen los tres campos completos, y `r sin_nada` no tienen ninguno. El tipo de sistema, que es el campo de interés técnico, falta en `r scales::number(sin_tipo, accuracy = 1)` % de los registros, pero esa cifra nacional la explica casi por completo una provincia: en Guanacaste falta en `r scales::number(guan_sin_tipo, accuracy = 1)` % de las asociaciones y `r scales::number(guan_sin_tel, accuracy = 1)` % carece de teléfono, frente a porcentajes de entre 2 % y 8 % sin tipo de sistema en las demás provincias (Heredia, con 15 registros, es un caso aparte). Es la misma provincia que concentra la mayor cantidad de ASADAS y la mayor tasa por habitante: el Estado regula más acueductos comunales precisamente donde menos sabe de ellos.
+
+El padrón presenta, además, una inconsistencia que las coordenadas ponen en evidencia. `group_by(x, y)` agrupa los registros que comparten exactamente la misma ubicación y `filter()` conserva los grupos con más de un registro.
+
+```{r}
+#| label: tbl-repetidos
+#| tbl-cap: "Ubicaciones que comparten más de un registro en el padrón. Fuente: elaboración propia con datos de ARESEP (2019)."
+puntos_repetidos <- asadas |>
+  group_by(x, y, provincia, canton, distrito) |>
+  summarize(registros = n(), .groups = "drop") |>
+  filter(registros > 1) |>
+  arrange(desc(registros))
+
+puntos_repetidos |>
+  select(provincia, canton, distrito, x, y, registros) |>
+  knitr::kable(
+    format.args = list(big.mark = " "),
+    col.names = c("Provincia", "Cantón", "Distrito", "X (m)", "Y (m)", "Registros")
+  )
+```
+
+Nueve ubicaciones concentran `r sum(puntos_repetidos$registros)` registros (`r scales::number(100 * sum(puntos_repetidos$registros) / n_asadas, accuracy = 0.1)` % del padrón): esas asociaciones no fueron georreferenciadas en su oficina, sino en un punto único por distrito. Lo más relevante es que, al revisar los nombres de los operadores de esos grupos, varios remiten a localidades que no corresponden al distrito en que el padrón los ubica. Los nueve registros asignados a Telire de Talamanca incluyen, por ejemplo, la ASADA de Pital, la de Veracruz y la de Boca Tapada, localidades del distrito de Pital, en San Carlos; entre los seis de Chirripó de Turrialba está la asociación del distrito de Horquetas, que pertenece a Sarapiquí; y los diecinueve de San Felipe de Alajuelita incluyen nombres de La Tigra, Venado y Monterrey, también de San Carlos. Esto sugiere un error de asignación del código de distrito en un bloque de registros, y explica al menos en parte dos resultados anteriores: la ausencia de Sarapiquí y el peso tan bajo de Heredia en el padrón. En consecuencia, los totales de Limón, Cartago y San José están ligeramente sobreestimados y los de Alajuela y Heredia subestimados; el análisis conserva los datos tal como los publica ARESEP, porque corregirlos exige verificar cada caso con el AyA, pero la limitación debe tenerse presente al interpretar las cifras provinciales.
+
+## Conclusiones
+
+**Distribución territorial.** Las 1 305 ASADAS del padrón se concentran en Guanacaste, Alajuela y San José, que reúnen casi dos de cada tres registros, y en cantones extensos y de población dispersa como Nicoya, Pérez Zeledón, Turrialba, Santa Cruz y Puntarenas. Relacionada con la población, la gestión comunitaria del agua pesa mucho más en Guanacaste (71 ASADAS por cada 100 000 habitantes, con una mediana cantonal de 8 por cada 10 000) y en Puntarenas que en el Valle Central, donde el servicio lo prestan el AyA, la ESPH y las municipalidades. Las coordenadas confirman ese patrón y muestran que la prestación comunal es, ante todo, un fenómeno del territorio rural y del Pacífico norte.
+
+**Condiciones de operación.** Siete de cada diez asociaciones con tipo conocido operan por gravedad, pero la proporción de bombeo varía de 3 % en San José a 41 % en Limón, con Guanacaste y Puntarenas en posiciones intermedias. Donde la topografía no permite la gravedad —el Caribe, las costas— la prestación comunal carga con un costo energético permanente que recae sobre organizaciones de vecinos con capacidad financiera limitada. Esas provincias son las que más apoyo técnico y financiero requieren, y los datos permiten decir dónde.
+
+**Completitud del padrón.** Más de siete de cada diez registros carecen de teléfono o de correo electrónico, y el tipo de sistema falta en 13 % de ellos, con una concentración extrema en Guanacaste (37 %). El padrón contiene además un bloque de al menos 77 registros georreferenciados en un punto único por distrito, varios de ellos asignados a distritos que no corresponden con el nombre de la asociación, lo que distorsiona las cifras de Heredia, Limón y Cartago. El Estado regula más acueductos comunales precisamente donde menos información tiene de ellos.
+
+**Limitaciones.** Los datos son una fotografía de octubre de 2019 y no reflejan las ASADAS creadas, fusionadas o disueltas desde entonces; el padrón cubre 1 305 asociaciones frente a las «más de 2000» que menciona la Dirección de Agua, de modo que las conclusiones se refieren a las asociaciones registradas por el AyA en ese momento y no al universo completo; la población de 2022 (INEC) no coincide en fecha con el padrón, aunque la diferencia de tres años no altera el orden de magnitud de las tasas; y el tipo de sistema desconocido en Guanacaste impide afirmar con precisión cuál es allí la proporción real de bombeo. La tarea 3 incorporará las capas geoespaciales de cantones y distritos, lo que permitirá contrastar la ubicación declarada con las coordenadas y corregir las inconsistencias detectadas.
+
+## Referencias bibliográficas
+
+Allaire, J. J., Teague, C., Scheidegger, C., Xie, Y., Dervieux, C., y Woodhull, G. (2024). *Quarto* (versión 1.6) [software]. <https://doi.org/10.5281/zenodo.5960048>
+
+Autoridad Reguladora de los Servicios Públicos, Intendencia de Agua. (2019). *Acueducto comunales (ASADAS)* [conjunto de datos, versión 1.0; licencia CC BY-SA 4.0]. Datos Abiertos ARESEP. <https://aresep.go.cr/datos-abiertos/acueducto-comunales-asadas/>
+
+Dirección de Agua. (s. f.). *ASADAS*. Ministerio de Ambiente y Energía. Recuperado el 3 de setiembre de 2026, de <https://da.go.cr/asadas/>
+
+Instituto Nacional de Estadística y Censos. (2023). *Resultados de la Estimación de Población y Vivienda 2022* [archivo XLSX]. <https://admin.inec.cr/sites/default/files/2023-11/reResultadosEstimacionPoblacionVivienda2022_3.xlsx>
+
+Poder Ejecutivo de Costa Rica. (2020). *Reglamento de las Asociaciones Administradoras de Sistemas de Acueductos y Alcantarillados Comunales (ASADAS)* [Decreto Ejecutivo N.° 42582-S-MINAE]. <https://www.fao.org/faolex/results/details/en/c/LEX-FAOC208339/>
+
+R Core Team. (2026). *R: A language and environment for statistical computing* (versión 4.6) [software]. R Foundation for Statistical Computing. <https://www.R-project.org/>
+
+Sievert, C. (2020). *Interactive web-based data visualization with R, plotly, and shiny*. Chapman and Hall/CRC. <https://plotly-r.com/>
+
+Vargas Del Valle, M. (2026). *PF-0953 Programación en R: II ciclo 2026* [sitio web del curso]. Universidad de Costa Rica. <https://pf0953-programacionr.github.io/2026-ii/>
+
+Wickham, H. (2016). *ggplot2: Elegant graphics for data analysis* (2.ª ed.). Springer. <https://ggplot2.tidyverse.org/>
+
+Wickham, H., Averick, M., Bryan, J., Chang, W., McGowan, L. D., François, R., Grolemund, G., Hayes, A., Henry, L., Hester, J., Kuhn, M., Pedersen, T. L., Miller, E., Bache, S. M., Müller, K., Ooms, J., Robinson, D., Seidel, D. P., Spinu, V., … Yutani, H. (2019). Welcome to the tidyverse. *Journal of Open Source Software*, *4*(43), 1686. <https://doi.org/10.21105/joss.01686>
+
+Wickham, H., Çetinkaya-Rundel, M., y Grolemund, G. (2023). *R for data science: Import, tidy, transform, visualize, and model data* (2.ª ed.). O'Reilly Media. <https://r4ds.hadley.nz/>
+
+Xie, Y., Cheng, J., y Tan, X. (s. f.). *DT: An R interface to the DataTables library*. Recuperado el 28 de octubre de 2026, de <https://rstudio.github.io/DT/>
+
+## Declaración de uso de asistentes de inteligencia artificial
+
+El tema, las preguntas de investigación, la selección de la fuente, la interpretación de los resultados y el criterio profesional sobre las ASADAS que sustentan este documento son propios. Conforme a los lineamientos del curso, declaro que utilicé el asistente Claude (Anthropic) con tres propósitos: generar una primera versión del código de R de las secciones de preparación de los datos, tablas y gráficos a partir de mis preguntas y de la estructura del padrón; depurar errores de ese código y de la estructura del documento Quarto; y verificar las referencias bibliográficas y el formato de las citas. Todo el código fue ejecutado, revisado y adaptado por mí, y los resultados fueron contrastados con los datos originales de ARESEP.
