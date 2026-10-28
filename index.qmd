@@ -566,4 +566,13 @@ Xie, Y., Cheng, J., y Tan, X. (s. f.). *DT: An R interface to the DataTables lib
 
 ## Declaración de uso de asistentes de inteligencia artificial
 
-El tema, las preguntas de investigación, la selección de la fuente, la interpretación de los resultados y el criterio profesional sobre las ASADAS que sustentan este documento son propios. Conforme a los lineamientos del curso, declaro que utilicé el asistente Claude (Anthropic) con tres propósitos: generar una primera versión del código de R de las secciones de preparación de los datos, tablas y gráficos a partir de mis preguntas y de la estructura del padrón; depurar errores de ese código y de la estructura del documento Quarto; y verificar las referencias bibliográficas y el formato de las citas. Todo el código fue ejecutado, revisado y adaptado por mí, y los resultados fueron contrastados con los datos originales de ARESEP.
+El tema, las preguntas, la elección de la fuente, la interpretación de los resultados y el criterio sobre las ASADAS que sustentan este documento son propios y provienen de mi trabajo con estas organizaciones desde RAM Ingeniería Civil. Como empresaria utilizo asistentes de inteligencia artificial en mi trabajo diario, y en este curso los uso como apoyo para practicar lo que el profesor explica en las lecciones: me permiten tener los contenidos en una forma que puedo aplicar paso a paso y corroborar con los datos. Son, en ese sentido, una herramienta que me ayuda a aprender y a poner en práctica la otra herramienta, la programación en R.
+
+Conforme a los lineamientos del curso, declaro que utilicé un asistente de inteligencia artificial de uso general, con fines de asistencia, con los siguientes propósitos y en las siguientes partes del trabajo:
+
+- En la sección 2, para obtener una primera versión del código de R de preparación de los datos y para que me explicara cada verbo de dplyr antes de usarlo.
+- En la sección 3, para la primera versión del código de las tablas y los gráficos, y para depurar los errores de ejecución y de la estructura del documento Quarto.
+- En el texto de las secciones 1 a 4, como apoyo en la redacción y revisión a partir de mis notas, de los resultados obtenidos y del documento de la tarea 1.
+- En la sección 5, para verificar que las referencias existan y revisar el formato APA 7.
+
+El documento se redactó de manera deliberadamente sencilla, con cada bloque de código explicado antes de ejecutarlo, para que quien visite el repositorio pueda seguir cómo se hace este tipo de análisis con R y qué información útil para la gestión integrada del recurso hídrico puede extraerse de los datos públicos. Todo el código fue ejecutado, revisado y adaptado por mí, y los resultados fueron contrastados con los datos originales de ARESEP.
